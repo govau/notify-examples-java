@@ -11,9 +11,9 @@ buildscript {
 }
 
 apply plugin: 'java'
-apply plugin: 'eclipse'
-apply plugin: 'org.springframework.boot'
 apply plugin: 'io.spring.dependency-management'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'war'
 
 group = 'au.gov.notify'
 version = '0.0.1-SNAPSHOT'
@@ -30,4 +30,11 @@ dependencies {
 			'org.springframework.boot:spring-boot-starter-web'
 	)
 	testCompile('org.springframework.boot:spring-boot-starter-test')
+}
+
+task downloadDependencies() {
+	description 'Download all dependencies to the Gradle cache'
+	doLast {
+		configurations.findAll { it.canBeResolved }.files
+	}
 }

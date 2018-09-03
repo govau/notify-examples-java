@@ -1,0 +1,9 @@
+---
+applications:
+- name: notify-examples-java
+  buildpacks:
+    - java_buildpack
+  instances: 1
+  path: ../build/libs/notify-examples-java-0.0.1-SNAPSHOT.war
+  routes:
+  - route: notify-examples-java.apps.y.cld.gov.au

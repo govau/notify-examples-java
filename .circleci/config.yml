@@ -1,0 +1,150 @@
+version: 2
+
+references:
+  java_node_image: &java_node_image
+    docker:
+    - image: circleci/openjdk:8u181-jdk-node-browsers
+
+  attach_workspace: &attach_workspace
+    attach_workspace:
+      at: .
+
+  restore_cache: &restore_cache
+    restore_cache:
+      keys:
+      # when lock file changes, use increasingly general patterns to restore cache
+      - gradle-repo-v1-{{ .Branch }}-{{ checksum "build.gradle" }}
+      - gradle-repo-v1-{{ .Branch }}-
+      - gradle-repo-v1-
+
+  cf_install: &cf_install
+    run:
+      command: |
+        curl -L "https://packages.cloudfoundry.org/stable?release=linux64-binary&source=github" | tar -zx
+        mkdir -p `pwd`/bin
+        chmod +x ./cf
+        mv ./cf bin/
+
+  cf_login: &cf_login
+    run:
+      name: Login to Cloud Foundry
+      command: ./bin/cf login -o $CF_Y_ORG -s $CF_Y_SPACE -a $CF_Y_ENDPOINT -u $CF_Y_USER -p $CF_Y_PASSWORD
+
+  master_branch: &master_branch
+    filters:
+      branches:
+        only:
+        - master
+
+  feature_branch: &feature_branch
+    filters:
+      branches:
+        only:
+        - /feat-.*/
+
+jobs:
+  setup:
+    <<: *java_node_image
+    steps:
+    - checkout
+    - *cf_install
+    - persist_to_workspace:
+        root: .
+        paths:
+        - .
+        - gradle
+        - src
+        - bin
+
+  download-dependencies:
+    <<: *java_node_image
+    steps:
+    - *attach_workspace
+    - *restore_cache
+    - run:
+        name: Download dependencies
+        command: ./gradlew downloadDependencies
+    - save_cache:
+        paths:
+        - ~/.gradle
+        key: gradle-repo-v1-{{ .Branch }}-{{ checksum "build.gradle" }}
+
+  run-tests-build-artifact:
+    <<: *java_node_image
+    steps:
+    - *attach_workspace
+    - *restore_cache
+    - run:
+        name: Test & build artifacts
+        command: |
+          ./gradlew test
+          ./gradlew bootWar
+    - persist_to_workspace:
+        root: .
+        paths:
+        - build
+
+  deploy-master:
+    <<: *java_node_image
+    steps:
+    - *attach_workspace
+    - *restore_cache
+    - *cf_login
+    - run:
+        name: Deploy master branch
+        command: ./bin/cf push -f ci/manifest.yml
+
+  deploy-feature:
+    <<: *java_node_image
+    steps:
+    - *attach_workspace
+    - *restore_cache
+    - *cf_login
+    - run:
+        name: Deploy feature branch
+        command: |
+          echo "branch: $CIRCLE_BRANCH" >> vars.txt
+          cat vars.txt
+          ./bin/cf push --vars-file vars.txt -f ci/manifest-feature.yml
+
+  delete-inactive-apps:
+    <<: *java_node_image
+    steps:
+    - *attach_workspace
+    - *cf_login
+    - run:
+        name: Delete inactive apps
+        command: |
+          mkdir ~/.ssh/ && echo -e "Host github.com\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
+          ci/delete-inactive-apps.sh
+
+
+workflows:
+  version: 2
+  build-and-deploy:
+    jobs:
+    - setup
+
+    - delete-inactive-apps:
+        requires:
+        - setup
+
+    - download-dependencies:
+        requires:
+        - setup
+
+    - run-tests-build-artifact:
+        requires:
+        - download-dependencies
+
+    - deploy-master:
+        <<: *master_branch
+        requires:
+        - run-tests-build-artifact
+
+    - deploy-feature:
+        <<: *feature_branch
+        requires:
+        - run-tests-build-artifact
+
+
