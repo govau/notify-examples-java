@@ -1,1 +1,3 @@
 rootProject.name = 'notify-examples-java'
+
+//includeBuild '../notify-java-client'
